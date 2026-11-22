@@ -34,6 +34,27 @@ The staff workspace refreshes the waiting-for-contact list once a minute. For in
 
 This browser workflow uses no messaging provider credentials. Leave the automated provider scheduler disabled for a browser-only installation.
 
+### Browser runner for unattended delivery
+
+The runner opens a dedicated Chrome window on an always-on workstation. Use a separate profile directory and worker credential for each staff member. It signs no one in automatically, uses no Gmail or WhatsApp messaging API, and does not attempt to handle CAPTCHA or MFA. Chrome must stay running. This first runner opens a local window and does not embed it in the Vercel staff page.
+
+1. Apply `supabase/browser-acknowledgements.sql` after `supabase/inquiry-acknowledgements.sql`. Leave the optional provider scheduler disabled to avoid both workers handling the same jobs.
+2. Run `node browser-runner/run.js --generate-token` on the workstation. Store the worker token locally. Set Vercel Production `BROWSER_ACK_WORKERS` to a JSON array such as `[{"staffId":"STAFF_AUTH_USER_UUID","tokenHash":"SHA256_HASH_PRINTED_BY_THE_GENERATOR"}]`. Use the active staff member's authentication UID. The Vercel variable contains hashes only. Redeploy.
+3. Install Chrome and run `npm install --no-save --package-lock=false playwright-core@1.56.1` from the project directory. Create an ignored `.env.browser` file on the workstation:
+
+   ```dotenv
+   BROWSER_PROFILE_DIR=C:/ApplyIQ-browser-profiles/example-staff
+   BROWSER_ACK_ORIGIN=https://applyiq-opal.vercel.app
+   BROWSER_ACK_TOKEN=WORKER_TOKEN_FROM_STEP_2
+   BROWSER_GMAIL_ACCOUNT=STAFF_GMAIL_ADDRESS
+   BROWSER_ACK_CHANNELS=email,whatsapp
+   ```
+
+4. Run `node --env-file=.env.browser browser-runner/run.js --login`. Sign in to Gmail and link WhatsApp yourself, then close Chrome. Reopen the dedicated profile with that command when the sites require sign-in again.
+5. Run `node --env-file=.env.browser browser-runner/run.js`. Start with an inquiry using your own test inbox or an opted-in test number. The runner polls every 30 seconds. It handles leads assigned to the configured user and allows a super admin runner to handle unassigned leads.
+
+The runner checks that an inquiry still qualifies immediately before clicking Send. WhatsApp requires recorded opt-in and a verifiable phone number in the contact panel. If a site changes and the runner cannot verify the recipient, the job is retried without sending. An unconfirmed send click is marked uncertain and is not automatically retried. Check the sender's Sent folder or chat before taking further action. Browser selectors must be validated against the live signed-in Gmail and WhatsApp interfaces before relying on unattended delivery.
+
 ### Optional provider worker
 
 Apply `supabase/inquiry-acknowledgements.sql` before the app deployment. New inquiries queue an email and a WhatsApp acknowledgement for ten minutes after receipt. Record successful contact on the inquiry in the staff workspace before the worker picks it up. Record the student's explicit WhatsApp opt-in before the deadline to enable phone delivery. Existing inquiries are excluded from this rollout.
