@@ -28,6 +28,9 @@ export async function POST(request) {
   if (action === 'create-inquiry') {
     return createInquiry(request,settings);
   }
+  if (['record-contact','record-whatsapp-opt-in','revoke-whatsapp-opt-in'].includes(action)) {
+    return updateInquiry(request,settings,action);
+  }
   if (['update-lead','schedule-followup','complete-followup'].includes(action)) {
     return changeWorkflow(request,settings,action);
   }
@@ -56,6 +59,40 @@ export async function POST(request) {
 }
 
 const isUuid = value => typeof value === 'string' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value);
+
+async function updateInquiry(request,settings,action) {
+  const auth=request.headers.get('Authorization');
+  if (!auth?.startsWith('Bearer ')) return json({error:'Sign in to continue.'},401);
+  const token=auth.slice(7);
+  let data;
+  try {data=await request.json();} catch {return json({error:'Invalid inquiry request.'},400);}
+  if (!isUuid(data?.leadId) || !isUuid(data.inquiryId)) return json({error:'Choose a valid inquiry.'},422);
+  try {
+    const params=leadScope(settings,data.leadId,'lead_id');
+    params.set('id','eq.'+data.inquiryId);
+    params.set('select','id');
+    let body;
+    if (action==='record-contact') {
+      const user=await requestSupabase(settings,'/auth/v1/user',{token});
+      if ([401,403].includes(user.status)) return json({error:'Your session has expired. Sign in again.'},401);
+      if (!user.ok) return json({error:'Could not verify your identity.'},502);
+      params.set('contacted_at','is.null');
+      body={contacted_at:new Date().toISOString(),contacted_by:(await user.json()).id};
+    } else {
+      body={whatsapp_opt_in_at:action==='record-whatsapp-opt-in'?new Date().toISOString():null};
+    }
+    const result=await requestSupabase(settings,'/rest/v1/inquiries?'+params,{
+      token,method:'PATCH',body,headers:{Prefer:'return=representation'}
+    });
+    if (result.status===401) return json({error:'Your session has expired. Sign in again.'},401);
+    if (result.status===403) return json({error:'You cannot update this inquiry.'},403);
+    if (!result.ok) return json({error:'Could not update this inquiry.'},502);
+    if (!(await result.json()).length) return json({error:'The inquiry already changed or you cannot edit it. Reopen the lead.'},409);
+    return json({ok:true});
+  } catch {
+    return json({error:'Could not confirm the inquiry update.'},502);
+  }
+}
 
 function leadScope(settings,id,column='id') {
   return new URLSearchParams({org_id:'eq.'+settings.org,[column]:'eq.'+id});
@@ -166,14 +203,16 @@ export async function GET(request) {
     if (leadId!==null) {
       if (!isUuid(leadId)) return json({error:'Choose a valid lead.'},422);
       const params=leadScope(settings,leadId);
-      params.set('select','id,name,phone,email,topic,department,stage,inquiries(id,source,topic,received_at),followups(id,title,due_at,completed_at,automatic)');
+      params.set('select','id,name,phone,email,topic,department,stage,assigned_to,inquiries(id,source,topic,received_at,contacted_at,whatsapp_opt_in_at),followups(id,title,due_at,completed_at,automatic)');
       params.set('archived_at','is.null');
       params.set('inquiries.order','received_at.desc');
       params.set('followups.order','due_at.asc');
       const result=await requestSupabase(settings,'/rest/v1/leads?'+params,{token});
       if (!result.ok) return json({error:'Could not load this lead.'},502);
       const [lead]=await result.json();
-      return lead ? json({lead,canEdit:staff.role==='super_admin'}) : json({error:'Lead not found or access denied.'},404);
+      const canEdit=staff.role==='super_admin';
+      return lead ? json({lead,canEdit,canContact:canEdit || staff.department===lead.department || lead.assigned_to===id}) :
+        json({error:'Lead not found or access denied.'},404);
     }
     const page = Number(new URL(request.url).searchParams.get('page') || 1);
     if (!Number.isSafeInteger(page) || page < 1 || page > 10000) return json({error:'Invalid page.'},400);

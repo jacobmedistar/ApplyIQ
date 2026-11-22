@@ -26,9 +26,19 @@ Apply `supabase/staff-setup.sql` after the foundation schema. This migration ins
 
 Staff requests use an authenticated Supabase access token, so the existing row policies determine which leads are visible. Sign in again after reloading or after the token expires.
 
+## Ten-minute inquiry acknowledgements
+
+Apply `supabase/inquiry-acknowledgements.sql` before the app deployment. New inquiries queue an email and a WhatsApp acknowledgement for ten minutes after receipt. Record successful contact on the inquiry in the staff workspace before the worker picks it up. Record the student's explicit WhatsApp opt-in before the deadline to enable phone delivery. Existing inquiries are excluded from this rollout.
+
+In Vercel Production, configure `ACK_WORKER_SECRET` (a random secret of at least 32 characters), `RESEND_API_KEY`, `ACK_EMAIL_FROM` (a verified sending address), and `ACK_EMAIL_REPLY_TO` (a monitored mailbox). Optionally set `ACK_WORKING_HOURS` with hours and time zone. The email asks for the student's preferred callback time.
+
+For WhatsApp, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `ACK_WHATSAPP_FROM` (a registered sender in E.164 format, without the whatsapp prefix), and `ACK_WHATSAPP_CONTENT_SID` (an approved template with no variables). Set the approved template copy to acknowledge the inquiry and invite the student to reply with a preferred callback time. Inbound replies are handled in the provider inbox or reply mailbox at this stage.
+
+Create Vault secrets named `applyiq_ack_worker_url` (the full stable Vercel production URL ending in `/api/acknowledgements`) and `applyiq_ack_worker_secret` (the exact worker secret configured in Vercel). Then apply `supabase/schedule-inquiry-acknowledgements.sql` to run the worker every minute. The first attempt can start on the next tick at or after the ten-minute deadline. Database delivery states distinguish provider acceptance, skips, failures and uncertain sends. Provider acceptance does not confirm delivery. Review uncertain WhatsApp sends in the provider first to avoid duplicates.
+
 ## Remaining production work
 
-- Extend the authenticated staff workspace with lead detail, mutations, branch- and assignment-level access, sensitive-field permissions and full audit views.
+- Extend lead editing, branch- and assignment-level access, sensitive-field permissions and full audit views.
 - Add source verification and webhook adapters for Meta Lead Ads, Instagram, WhatsApp, Messenger, email and the public site. Stage incomplete inquiries separately so source events are retained while mandatory contact data is collected. Provide an operator review queue for conflicting identities.
 - Build the conversation inbox, provider delivery callbacks, consent and template rules, and an idempotent background worker for due reminders, retries and escalation. Add browser session integration for authorized university portals and supported provider flows with interactive login, isolated sessions and server-side activity tracking.
 - Add separate applications per student, university and intake with admissions, visa, travel and enrollment checklists. Add private document storage, staff chat, accounts, activity reporting and AI orchestration.

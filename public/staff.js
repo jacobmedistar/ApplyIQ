@@ -145,7 +145,7 @@ async function openLead(id,status='') {
   detailStatus.textContent='Loading lead…';
   if (!details.open) details.showModal();
   try {
-    const {lead,canEdit}=await api({headers:{Authorization:'Bearer '+token}},'?lead='+encodeURIComponent(id));
+    const {lead,canEdit,canContact}=await api({headers:{Authorization:'Bearer '+token}},'?lead='+encodeURIComponent(id));
     if (generation!==detailRequest || !details.open) return;
     currentLead=lead;
     leadName.textContent=lead.name;
@@ -155,7 +155,25 @@ async function openLead(id,status='') {
     routing.elements.department.value=lead.department;
     routing.hidden=schedule.hidden=!canEdit;
     renderList(inquiryHistory,lead.inquiries,'No inquiry history available.',(row,item)=>{
-      row.textContent=item.source+' · '+item.topic+' · '+dateLabel(item.received_at);
+      const label=document.createElement('span');
+      label.textContent=[item.source,item.topic,dateLabel(item.received_at),
+        item.contacted_at?'Contact recorded at '+dateLabel(item.contacted_at):'Contact not recorded',
+        item.whatsapp_opt_in_at?'WhatsApp opt-in recorded':'WhatsApp opt-in missing'].join(' · ');
+      row.append(label);
+      if (!canContact) return;
+      const button=(text,action,success)=>{
+        const control=document.createElement('button');
+        control.type='button';
+        control.textContent=text;
+        control.addEventListener('click',()=>saveWorkflow(control,action,{inquiryId:item.id},success));
+        row.append(control);
+      };
+      if (!item.contacted_at) button('Record contact','record-contact','Contact recorded.');
+      if (item.whatsapp_opt_in_at) {
+        button('Record WhatsApp opt-out','revoke-whatsapp-opt-in','WhatsApp opt-out recorded.');
+      } else {
+        button('Confirm student opted in to WhatsApp','record-whatsapp-opt-in','WhatsApp opt-in recorded.');
+      }
     });
     renderList(followups,lead.followups,'No follow-ups scheduled.',(row,item)=>{
       const label=document.createElement('span');
