@@ -32,6 +32,24 @@
 </section>
 </section>
 </main>
+<dialog id="lead-details" aria-labelledby="lead-name">
+<div class="toolbar"><h2 id="lead-name">Lead details</h2><button id="close-lead" type="button">Close</button></div>
+<p id="lead-status" role="status"></p>
+<p id="lead-contact"></p>
+<p id="lead-stage"></p>
+<form id="lead-routing" class="form" hidden>
+<label>Stage<select name="stage" required></select></label>
+<label>Department<select name="department" required></select></label>
+<div class="wide"><button class="primary">Save stage and department</button></div>
+</form>
+<section class="panel"><h2>Inquiry history</h2><div id="lead-inquiries"></div></section>
+<section class="panel"><h2>Follow-ups</h2><div id="lead-followups"></div>
+<form id="schedule-followup" class="form" hidden>
+<label>Follow-up title<input name="title" maxlength="250" required></label>
+<label>Due date and time<input name="due" type="datetime-local" required></label>
+<div class="wide"><button class="primary">Schedule follow-up</button></div>
+</form></section>
+</dialog>
 <script type="module" src="/staff.js"></script>
 </body>
 </html>

@@ -20,6 +20,8 @@ Open `/staff.html` for the authenticated staff workspace. Set `SUPABASE_PUBLISHA
 
 Apply `supabase/staff-intake.sql` after the foundation schema to enable the New inquiry form for active super administrators. The database verifies the role and records the signed-in actor in audit history. The form uses the shared intake logic for repeat inquiries and identifies submissions so retries do not create duplicate inquiry events.
 
+Apply `supabase/staff-workflow.sql` once after the foundation schema to enable stage and department updates and manual follow-up scheduling and completion for active super administrators. Open a lead to see its contact details, inquiry history and follow-ups. Read access follows the existing department rules. Workflow changes use the signed-in user's token and the existing audit triggers.
+
 Apply `supabase/staff-setup.sql` after the foundation schema. This migration installs the function and permissions used by the form. Set `APPLYIQ_SETUP_KEY` to a new random secret of at least 32 characters in Vercel and deploy. Open `/setup.html`, enter the setup key, and choose the first administrator's email and password. The form creates the Auth account and links it to the existing organization. Once the first staff membership exists, further setup requests are rejected. Remove the setup key from Vercel and redeploy after signing in successfully.
 
 Staff requests use an authenticated Supabase access token, so the existing row policies determine which leads are visible. Sign in again after reloading or after the token expires.

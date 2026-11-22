@@ -1,4 +1,4 @@
-import {contact,sources} from '../public/crm.js';
+import {contact,sources,stages,departments} from '../public/crm.js';
 
 const json = (body, status = 200) => Response.json(body, {
   status, headers: {'Cache-Control': 'no-store'}
@@ -10,13 +10,13 @@ function config() {
   return {url: SUPABASE_URL, key: SUPABASE_PUBLISHABLE_KEY, org: SUPABASE_ORG_ID};
 }
 
-function requestSupabase(settings, path, {token, body, headers} = {}) {
+function requestSupabase(settings, path, {token, body, headers, method = body ? 'POST' : 'GET'} = {}) {
   const options = new Headers(headers);
   options.set('apikey', settings.key);
   if (token) options.set('Authorization', 'Bearer '+token);
   if (body) options.set('Content-Type', 'application/json');
   return fetch(new URL(path, settings.url), {
-    method: body ? 'POST' : 'GET', headers: options,
+    method, headers: options,
     body: body && JSON.stringify(body), signal: AbortSignal.timeout(8000)
   });
 }
@@ -24,8 +24,12 @@ function requestSupabase(settings, path, {token, body, headers} = {}) {
 export async function POST(request) {
   const settings = config();
   if (!settings) return json({error:'Staff sign-in is unavailable.'},503);
-  if (new URL(request.url).searchParams.get('action') === 'create-inquiry') {
+  const action = new URL(request.url).searchParams.get('action');
+  if (action === 'create-inquiry') {
     return createInquiry(request,settings);
+  }
+  if (['update-lead','schedule-followup','complete-followup'].includes(action)) {
+    return changeWorkflow(request,settings,action);
   }
   let credentials;
   try {
@@ -48,6 +52,65 @@ export async function POST(request) {
     return json({token});
   } catch {
     return json({error:'Staff sign-in is unavailable.'},502);
+  }
+}
+
+const isUuid = value => typeof value === 'string' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value);
+
+function leadScope(settings,id,column='id') {
+  return new URLSearchParams({org_id:'eq.'+settings.org,[column]:'eq.'+id});
+}
+
+async function changeWorkflow(request,settings,action) {
+  const authorization=request.headers.get('Authorization');
+  if (!authorization?.startsWith('Bearer ')) return json({error:'Sign in to continue.'},401);
+  const token=authorization.slice(7);
+  let data;
+  try {data=await request.json();} catch {return json({error:'Invalid workflow request.'},400);}
+  if (!isUuid(data?.leadId)) return json({error:'Choose a valid lead.'},422);
+  let path, body, method='PATCH';
+  if (action==='update-lead') {
+    if (!stages.includes(data.stage) || !departments.includes(data.department)) return json({error:'Choose a valid stage and department.'},422);
+    if (!stages.includes(data.previousStage) || !departments.includes(data.previousDepartment)) return json({error:'Reload the lead before changing it.'},422);
+    const scope=leadScope(settings,data.leadId);
+    scope.set('stage','eq.'+data.previousStage);
+    scope.set('department','eq.'+data.previousDepartment);
+    path='/rest/v1/leads?'+scope;
+    body={stage:data.stage,department:data.department};
+  } else if (action==='schedule-followup') {
+    const title=typeof data.title==='string' ? data.title.trim() : '';
+    const due=typeof data.due==='string' ? Date.parse(data.due) : NaN;
+    if (!title || title.length>250 || !Number.isFinite(due) || !isUuid(data.followupId)) return json({error:'Enter a follow-up title and due date.'},422);
+    const params = new URLSearchParams({on_conflict:'id'});
+    path='/rest/v1/followups?'+params;
+    method='POST';
+    body={id:data.followupId,org_id:settings.org,lead_id:data.leadId,title,due_at:new Date(due).toISOString()};
+  } else {
+    if (!isUuid(data.followupId)) return json({error:'Choose a valid follow-up.'},422);
+    const scope=leadScope(settings,data.leadId,'lead_id');
+    scope.set('id','eq.'+data.followupId);
+    path='/rest/v1/followups?'+scope;
+    body={completed_at:new Date().toISOString()};
+  }
+  try {
+    const prefer=method==='POST' ? 'resolution=ignore-duplicates,return=representation' : 'return=representation';
+    const result=await requestSupabase(settings,path,{token,body,method,headers:{Prefer:prefer}});
+    if (result.status===401) return json({error:'Your session has expired. Sign in again.'},401);
+    if (result.status===403) return json({error:'You do not have permission to make this change.'},403);
+    if (!result.ok) return json({error:'Could not save this change. Check that the workflow migration has been applied.'},502);
+    const rows=await result.json();
+    if (!rows.length && method!=='POST') return json({error:'This record changed or is no longer editable. Reopen the lead and try again.'},409);
+    if (!rows.length) {
+      const scope=leadScope(settings,data.leadId,'lead_id');
+      scope.set('id','eq.'+data.followupId);
+      scope.set('select','id,title,due_at');
+      const existing=await requestSupabase(settings,'/rest/v1/followups?'+scope,{token});
+      const [row]=existing.ok ? await existing.json() : [];
+      if (row?.title!==body.title || Date.parse(row?.due_at)!==Date.parse(body.due_at)) return json({error:'Could not verify the saved follow-up.'},409);
+    }
+    return json({ok:true});
+  } catch {
+    return json({error:'Could not confirm the change. Reopen the lead to check its state.'},502);
   }
 }
 
@@ -99,6 +162,19 @@ export async function GET(request) {
     if (!membership.ok) return json({error:'Could not verify staff access.'},502);
     const [staff] = await membership.json();
     if (!staff) return json({error:'This account does not have access to ApplyIQ.'},403);
+    const leadId = new URL(request.url).searchParams.get('lead');
+    if (leadId!==null) {
+      if (!isUuid(leadId)) return json({error:'Choose a valid lead.'},422);
+      const params=leadScope(settings,leadId);
+      params.set('select','id,name,phone,email,topic,department,stage,inquiries(id,source,topic,received_at),followups(id,title,due_at,completed_at,automatic)');
+      params.set('archived_at','is.null');
+      params.set('inquiries.order','received_at.desc');
+      params.set('followups.order','due_at.asc');
+      const result=await requestSupabase(settings,'/rest/v1/leads?'+params,{token});
+      if (!result.ok) return json({error:'Could not load this lead.'},502);
+      const [lead]=await result.json();
+      return lead ? json({lead,canEdit:staff.role==='super_admin'}) : json({error:'Lead not found or access denied.'},404);
+    }
     const page = Number(new URL(request.url).searchParams.get('page') || 1);
     if (!Number.isSafeInteger(page) || page < 1 || page > 10000) return json({error:'Invalid page.'},400);
     const params = new URLSearchParams({

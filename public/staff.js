@@ -1,4 +1,4 @@
-import {sources} from './crm.js';
+import {sources,stages,departments} from './crm.js';
 
 const login = document.querySelector('#login');
 const queue = document.querySelector('#queue');
@@ -9,6 +9,20 @@ const next = document.querySelector('#next');
 const inquiry = document.querySelector('#inquiry');
 const inquiryPanel = document.querySelector('#inquiry-panel');
 const inquiryStatus = document.querySelector('#inquiry-status');
+const details = document.querySelector('#lead-details');
+const detailStatus = document.querySelector('#lead-status');
+const routing = document.querySelector('#lead-routing');
+const schedule = document.querySelector('#schedule-followup');
+const leadName = document.querySelector('#lead-name');
+const leadContact = document.querySelector('#lead-contact');
+const leadStage = document.querySelector('#lead-stage');
+const inquiryHistory = document.querySelector('#lead-inquiries');
+const followups = document.querySelector('#lead-followups');
+let currentLead;
+let detailRequest = 0;
+let pendingFollowup;
+for (const stage of stages) routing.elements.stage.add(new Option(stage,stage));
+for (const department of departments) routing.elements.department.add(new Option(department,department));
 for (const source of sources) inquiry.elements.source.add(new Option(source,source));
 let pendingInquiry;
 let token;
@@ -28,6 +42,7 @@ async function api(options, query = '') {
 
 function reset() {
   session++;
+  details.close();
   token = undefined;
   page = 1;
   queue.hidden = signOut.hidden = true;
@@ -61,8 +76,13 @@ async function loadLeads(targetPage) {
       const stage = document.createElement('span');
       stage.className = 'pill';
       stage.textContent = lead.stage;
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.textContent = 'Open lead';
+      open.setAttribute('aria-label','Open '+lead.name);
+      open.addEventListener('click',()=>openLead(lead.id));
       identity.append(name,topic);
-      row.append(identity,stage);
+      row.append(identity,stage,open);
       list.append(row);
     }
     if (!data.leads.length) list.textContent = 'No active leads available.';
@@ -99,6 +119,129 @@ login.addEventListener('submit',async event=>{
   } finally {
     submit.disabled = false;
   }
+});
+
+function renderList(container,records,emptyText,render) {
+  container.replaceChildren();
+  if (!records.length) container.textContent=emptyText;
+  for (const record of records) {
+    const row=document.createElement('div');
+    row.className='row';
+    render(row,record);
+    container.append(row);
+  }
+}
+
+const dateLabel = value => new Date(value).toLocaleString();
+
+async function openLead(id,status='') {
+  const generation=++detailRequest;
+  currentLead=undefined;
+  routing.hidden=schedule.hidden=true;
+  leadName.textContent='Lead details';
+  leadContact.textContent=leadStage.textContent='';
+  inquiryHistory.replaceChildren();
+  followups.replaceChildren();
+  detailStatus.textContent='Loading lead…';
+  if (!details.open) details.showModal();
+  try {
+    const {lead,canEdit}=await api({headers:{Authorization:'Bearer '+token}},'?lead='+encodeURIComponent(id));
+    if (generation!==detailRequest || !details.open) return;
+    currentLead=lead;
+    leadName.textContent=lead.name;
+    leadContact.textContent=[lead.phone,lead.email,lead.topic].join(' · ');
+    leadStage.textContent=lead.stage+' · '+lead.department;
+    routing.elements.stage.value=lead.stage;
+    routing.elements.department.value=lead.department;
+    routing.hidden=schedule.hidden=!canEdit;
+    renderList(inquiryHistory,lead.inquiries,'No inquiry history available.',(row,item)=>{
+      row.textContent=item.source+' · '+item.topic+' · '+dateLabel(item.received_at);
+    });
+    renderList(followups,lead.followups,'No follow-ups scheduled.',(row,item)=>{
+      const label=document.createElement('span');
+      label.textContent=[item.title,dateLabel(item.due_at),item.completed_at?'Completed':item.automatic?'Automatic':'Scheduled'].join(' · ');
+      row.append(label);
+      if (canEdit && !item.completed_at) {
+        const button=document.createElement('button');
+        button.type='button';
+        button.textContent='Mark complete';
+        button.addEventListener('click',()=>saveWorkflow(button,'complete-followup',{followupId:item.id},'Follow-up completed.'));
+        row.append(button);
+      }
+    });
+    detailStatus.textContent=status;
+  } catch (error) {
+    if (generation!==detailRequest || !details.open) return;
+    if (error.status===401) {
+      reset();
+      message.textContent=error.message;
+    } else {
+      detailStatus.textContent=error.message;
+    }
+  }
+}
+
+async function saveWorkflow(button,action,fields,success) {
+  if (!currentLead || details.dataset.saving) return;
+  const id=currentLead.id;
+  const generation=detailRequest;
+  details.dataset.saving='true';
+  button.disabled=true;
+  detailStatus.textContent='Saving…';
+  try {
+    await api({method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({...fields,leadId:id})},'?action='+action);
+    if (generation!==detailRequest || !details.open) return;
+    if (action==='schedule-followup') {
+      schedule.reset();
+      pendingFollowup=undefined;
+    }
+    await openLead(id,success);
+    if (action==='update-lead') await loadLeads(page);
+  } catch (error) {
+    if (generation!==detailRequest || !details.open) return;
+    if (error.status===401) {
+      reset();
+      message.textContent=error.message;
+    } else {
+      detailStatus.textContent=error.message;
+    }
+  } finally {
+    delete details.dataset.saving;
+    button.disabled=false;
+  }
+}
+
+routing.addEventListener('submit',event=>{
+  event.preventDefault();
+  if (!currentLead) return;
+  const fields=Object.fromEntries(new FormData(routing));
+  if (fields.stage===currentLead.stage && fields.department===currentLead.department) return;
+  saveWorkflow(routing.querySelector('button'),'update-lead',{
+    ...fields,previousStage:currentLead.stage,previousDepartment:currentLead.department
+  },'Stage and department saved.');
+});
+schedule.addEventListener('submit',event=>{
+  event.preventDefault();
+  if (!currentLead) return;
+  const fields=Object.fromEntries(new FormData(schedule));
+  const date=new Date(fields.due);
+  if (Number.isNaN(date.getTime())) return;
+  const snapshot=JSON.stringify([currentLead.id,fields]);
+  if (pendingFollowup?.snapshot!==snapshot) pendingFollowup={snapshot,id:crypto.randomUUID()};
+  saveWorkflow(schedule.querySelector('button'),'schedule-followup',{
+    title:fields.title,due:date.toISOString(),followupId:pendingFollowup.id
+  },'Follow-up scheduled.');
+});
+document.querySelector('#close-lead').addEventListener('click',()=>details.close());
+details.addEventListener('close',()=>{
+  detailRequest++;
+  currentLead=undefined;
+  schedule.reset();
+  pendingFollowup=undefined;
+  leadContact.textContent='';
+  inquiryHistory.replaceChildren();
+  followups.replaceChildren();
 });
 signOut.addEventListener('click',()=>{reset();message.textContent='Signed out.';});
 previous.addEventListener('click',()=>loadLeads(page-1));
