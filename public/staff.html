@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staff workspace · ApplyIQ</title><link rel="stylesheet" href="/style.css"><style>[hidden]{display:none!important}</style></head>
+<body>
+<aside><a class="brand" href="/">ApplyIQ</a><nav aria-label="Workspace"><a href="/">Demo dashboard</a><a href="/staff.html" aria-current="page">Staff workspace</a></nav></aside>
+<main>
+<header><strong>Staff workspace</strong><button id="sign-out" hidden>Sign out</button></header>
+<section id="view">
+<h1>Staff workspace</h1>
+<p id="message" role="status"></p>
+<form class="form panel" id="login">
+<label>Email<input name="email" type="email" autocomplete="username" required></label>
+<label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+<div class="wide"><button class="primary">Sign in</button></div>
+</form>
+<section class="panel" id="queue" hidden>
+<h2>Active leads</h2><p id="membership" class="muted"></p><div id="leads"></div>
+<div class="toolbar"><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></div>
+</section>
+</section>
+</main>
+<script type="module" src="/staff.js"></script>
+</body>
+</html>
