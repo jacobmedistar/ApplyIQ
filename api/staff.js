@@ -199,11 +199,34 @@ export async function GET(request) {
     if (!membership.ok) return json({error:'Could not verify staff access.'},502);
     const [staff] = await membership.json();
     if (!staff) return json({error:'This account does not have access to ApplyIQ.'},403);
+    if (new URL(request.url).searchParams.get('view')==='due-contact') {
+      const params=new URLSearchParams({
+        select:'id,lead_id,topic,source,received_at,lead:leads!inner(id,name,department,stage,archived_at,assigned_to)',
+        org_id:'eq.'+settings.org,
+        contacted_at:'is.null',
+        received_at:'lte.'+new Date(Date.now()-600000).toISOString(),
+        'lead.archived_at':'is.null',
+        'lead.stage':'not.in.(Closed,Enrolled)',
+        order:'received_at.asc,id.asc',
+        limit:'51'
+      });
+      if (staff.role!=='super_admin') {
+        if (departments.includes(staff.department)) {
+          params.set('lead.or','(department.eq."'+staff.department+'",assigned_to.eq.'+id+')');
+        } else {
+          params.set('lead.assigned_to','eq.'+id);
+        }
+      }
+      const result=await requestSupabase(settings,'/rest/v1/inquiries?'+params,{token});
+      if (!result.ok) return json({error:'Could not load inquiries waiting for contact.'},502);
+      const rows=await result.json();
+      return json({inquiries:rows.slice(0,50),hasMore:rows.length>50});
+    }
     const leadId = new URL(request.url).searchParams.get('lead');
     if (leadId!==null) {
       if (!isUuid(leadId)) return json({error:'Choose a valid lead.'},422);
       const params=leadScope(settings,leadId);
-      params.set('select','id,name,phone,email,topic,department,stage,assigned_to,inquiries(id,source,topic,received_at,contacted_at,whatsapp_opt_in_at),followups(id,title,due_at,completed_at,automatic)');
+      params.set('select','id,name,phone,email,topic,department,stage,assigned_to,inquiries(id,source,topic,phone,email,received_at,contacted_at,whatsapp_opt_in_at),followups(id,title,due_at,completed_at,automatic)');
       params.set('archived_at','is.null');
       params.set('inquiries.order','received_at.desc');
       params.set('followups.order','due_at.asc');

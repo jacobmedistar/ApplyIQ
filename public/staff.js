@@ -1,4 +1,4 @@
-import {sources,stages,departments} from './crm.js';
+import {sources,stages,departments,acknowledgementLinks} from './crm.js';
 
 const login = document.querySelector('#login');
 const queue = document.querySelector('#queue');
@@ -18,6 +18,12 @@ const leadContact = document.querySelector('#lead-contact');
 const leadStage = document.querySelector('#lead-stage');
 const inquiryHistory = document.querySelector('#lead-inquiries');
 const followups = document.querySelector('#lead-followups');
+const dueContact = document.querySelector('#due-contact');
+const dueStatus = document.querySelector('#due-contact-status');
+const dueList = document.querySelector('#due-contact-list');
+const refreshContact = document.querySelector('#refresh-contact');
+let contactTimer;
+let contactRequest=0;
 let currentLead;
 let detailRequest = 0;
 let pendingFollowup;
@@ -42,6 +48,12 @@ async function api(options, query = '') {
 
 function reset() {
   session++;
+  clearInterval(contactTimer);
+  contactTimer=undefined;
+  contactRequest++;
+  dueContact.hidden=true;
+  dueList.replaceChildren();
+  dueStatus.textContent='';
   details.close();
   token = undefined;
   page = 1;
@@ -92,6 +104,11 @@ async function loadLeads(targetPage) {
     login.hidden = true;
     signOut.hidden = queue.hidden = false;
     inquiryPanel.hidden = data.staff.role !== 'super_admin';
+    dueContact.hidden=false;
+    if (!contactTimer) {
+      void loadDueContact();
+      contactTimer=setInterval(loadDueContact,60000);
+    }
     message.textContent = '';
   } catch (error) {
     if (session !== currentSession) return;
@@ -134,7 +151,38 @@ function renderList(container,records,emptyText,render) {
 
 const dateLabel = value => new Date(value).toLocaleString();
 
-async function openLead(id,status='') {
+async function loadDueContact() {
+  if (!token) return;
+  const generation=++contactRequest;
+  refreshContact.disabled=true;
+  try {
+    const {inquiries,hasMore}=await api({headers:{Authorization:'Bearer '+token}},'?view=due-contact');
+    if (generation!==contactRequest) return;
+    dueStatus.textContent=hasMore?'Showing the 50 oldest inquiries.':'';
+    renderList(dueList,inquiries,'No inquiries have been waiting for ten minutes.',(row,item)=>{
+      const label=document.createElement('span');
+      label.textContent=[item.lead.name,item.topic,item.source,dateLabel(item.received_at)].join(' · ');
+      const button=document.createElement('button');
+      button.type='button';
+      button.textContent='Open inquiry';
+      button.addEventListener('click',()=>openLead(item.lead_id,'',item.id));
+      row.append(label,button);
+    });
+  } catch (error) {
+    if (generation!==contactRequest) return;
+    if (error.status===401) {
+      reset();
+      message.textContent=error.message;
+    } else {
+      dueStatus.textContent=error.message;
+    }
+  } finally {
+    if (generation===contactRequest) refreshContact.disabled=false;
+  }
+}
+refreshContact.addEventListener('click',loadDueContact);
+
+async function openLead(id,status='',selectedInquiry) {
   const generation=++detailRequest;
   currentLead=undefined;
   routing.hidden=schedule.hidden=true;
@@ -161,6 +209,19 @@ async function openLead(id,status='') {
         item.whatsapp_opt_in_at?'WhatsApp opt-in recorded':'WhatsApp opt-in missing'].join(' · ');
       row.append(label);
       if (!canContact) return;
+      if (!item.contacted_at) {
+        const links=acknowledgementLinks(item);
+        for (const [channel,url] of Object.entries(links)) {
+          if (!url) continue;
+          const link=document.createElement('a');
+          link.href=url;
+          link.target='_blank';
+          link.rel='noopener noreferrer';
+          link.className='pill';
+          link.textContent=channel==='email'?'Open Gmail draft':'Open WhatsApp draft';
+          row.append(link);
+        }
+      }
       const button=(text,action,success)=>{
         const control=document.createElement('button');
         control.type='button';
@@ -174,6 +235,7 @@ async function openLead(id,status='') {
       } else {
         button('Confirm student opted in to WhatsApp','record-whatsapp-opt-in','WhatsApp opt-in recorded.');
       }
+      if (item.id===selectedInquiry) row.querySelector('a,button')?.focus();
     });
     renderList(followups,lead.followups,'No follow-ups scheduled.',(row,item)=>{
       const label=document.createElement('span');
@@ -215,6 +277,7 @@ async function saveWorkflow(button,action,fields,success) {
       pendingFollowup=undefined;
     }
     await openLead(id,success);
+    if (action==='record-contact' || action==='update-lead') void loadDueContact();
     if (action==='update-lead') await loadLeads(page);
   } catch (error) {
     if (generation!==detailRequest || !details.open) return;

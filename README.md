@@ -28,6 +28,14 @@ Staff requests use an authenticated Supabase access token, so the existing row p
 
 ## Ten-minute inquiry acknowledgements
 
+### Browser-based workflow
+
+The staff workspace refreshes the waiting-for-contact list once a minute. For inquiries with no recorded contact after ten minutes, open the inquiry and use the prefilled Gmail draft or WhatsApp draft. WhatsApp is available when the inquiry has a recorded opt-in. Each draft opens in a separate tab and uses the account signed in there. Review the recipient, then send from that tab. Opening a draft does not mark the inquiry contacted.
+
+This browser workflow uses no messaging provider credentials. Leave the automated provider scheduler disabled for a browser-only installation.
+
+### Optional provider worker
+
 Apply `supabase/inquiry-acknowledgements.sql` before the app deployment. New inquiries queue an email and a WhatsApp acknowledgement for ten minutes after receipt. Record successful contact on the inquiry in the staff workspace before the worker picks it up. Record the student's explicit WhatsApp opt-in before the deadline to enable phone delivery. Existing inquiries are excluded from this rollout.
 
 In Vercel Production, configure `ACK_WORKER_SECRET` (a random secret of at least 32 characters), `RESEND_API_KEY`, `ACK_EMAIL_FROM` (a verified sending address), and `ACK_EMAIL_REPLY_TO` (a monitored mailbox). Optionally set `ACK_WORKING_HOURS` with hours and time zone. The email asks for the student's preferred callback time.

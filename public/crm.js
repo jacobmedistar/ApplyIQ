@@ -1,6 +1,15 @@
 export const stages = ['New inquiry','Counselling','Document collection','Application preparation','Application submitted','Offer received','Visa preparation','Visa submitted','Visa granted','Travel booked','Enrolled','Closed'];
 export const departments = ['Front office','Marketing','Business development','Sales','Counselling','Admissions','Documentation','Accounts','Visa and ticketing','Student support','Branch management','Executive'];
 export const sources = ['Website','Meta ads','Instagram','Facebook','WhatsApp','Messenger','Email','Referral','Walk-in','Other'];
+export function acknowledgementLinks(inquiry) {
+  const subject='We received your study abroad inquiry';
+  const body='Thank you for your study abroad inquiry. A counsellor will contact you soon. If you prefer a particular time, please reply with your preferred day, time and time zone.';
+  const email=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inquiry.email || '') ?
+    'https://mail.google.com/mail/?'+new URLSearchParams({view:'cm',fs:'1',to:inquiry.email,su:subject,body}) : null;
+  const whatsapp=inquiry.whatsapp_opt_in_at && /^\+[1-9]\d{7,14}$/.test(inquiry.phone || '') ?
+    'https://wa.me/'+inquiry.phone.slice(1)+'?text='+encodeURIComponent(body) : null;
+  return {email,whatsapp};
+}
 export const contact = input => {
   const row = Object.fromEntries(Object.entries(input).map(([key,value]) => [key,String(value).trim()]));
   row.email = row.email.toLowerCase();
