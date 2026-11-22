@@ -18,7 +18,9 @@ Use Node.js 22 or later. Run `npm run dev` and open http://127.0.0.1:4173. Run `
 
 Open `/staff.html` for the authenticated, read-only staff workspace. Set `SUPABASE_PUBLISHABLE_KEY` in Vercel using the publishable key from the same Supabase project. This route also requires `SUPABASE_URL` and `SUPABASE_ORG_ID`. For local development with an environment file, run `node --env-file=.env.local server.js`.
 
-Create a password-enabled test user under Supabase Authentication and add their user ID to `public.staff` for the configured organization. Set `active` to true and use the intended department and role. Staff requests use an authenticated Supabase access token, so the existing row policies determine which leads are visible. Sign in again after reloading or after the token expires.
+Apply `supabase/staff-setup.sql` after the foundation schema. This migration installs the function and permissions used by the form. Set `APPLYIQ_SETUP_KEY` to a new random secret of at least 32 characters in Vercel and deploy. Open `/setup.html`, enter the setup key, and choose the first administrator's email and password. The form creates the Auth account and links it to the existing organization. Once the first staff membership exists, further setup requests are rejected. Remove the setup key from Vercel and redeploy after signing in successfully.
+
+Staff requests use an authenticated Supabase access token, so the existing row policies determine which leads are visible. Sign in again after reloading or after the token expires.
 
 ## Remaining production work
 
