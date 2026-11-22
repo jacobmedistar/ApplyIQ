@@ -4,9 +4,12 @@
 <body><aside><a class="brand" href="/">ApplyIQ</a><nav aria-label="Workspace"><a href="/staff.html">Staff sign-in</a></nav></aside>
 <main><section id="view"><h1>Set up the first administrator</h1>
 <form class="form panel" id="setup">
-<label class="wide">Setup key<input name="key" type="password" autocomplete="off" required></label>
+<label class="wide">Vercel setup key
+<input name="key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="setup-key-help" required>
+<small id="setup-key-help">Paste the value saved as APPLYIQ_SETUP_KEY in Vercel Production.</small>
+</label>
 <label>Email<input name="email" type="email" autocomplete="username" required></label>
-<label>Password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+<label>New administrator password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
 <div class="wide"><button class="primary">Create administrator</button></div>
 </form><p id="setup-status" role="status"></p><a href="/staff.html">Go to staff sign-in</a>
 </section></main><script type="module" src="/setup.js"></script></body>

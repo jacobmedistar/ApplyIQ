@@ -3,12 +3,14 @@ const json = (body,status) => Response.json(body,{status,headers:{'Cache-Control
 
 export async function POST(request) {
   const {APPLYIQ_SETUP_KEY,SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,SUPABASE_PUBLISHABLE_KEY,SUPABASE_ORG_ID} = process.env;
-  if (!APPLYIQ_SETUP_KEY || APPLYIQ_SETUP_KEY.length < 32 || !SUPABASE_URL ||
+  const setupKey = APPLYIQ_SETUP_KEY?.trim();
+  if (!setupKey || setupKey.length < 32 || !SUPABASE_URL ||
       !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_PUBLISHABLE_KEY || !SUPABASE_ORG_ID) {
     return json({error:'Administrator setup is unavailable.'},503);
   }
-  const expected = Buffer.from('Bearer '+APPLYIQ_SETUP_KEY);
-  const given = Buffer.from(request.headers.get('authorization') || '');
+  const expected = Buffer.from(setupKey);
+  const authorization = request.headers.get('authorization') || '';
+  const given = Buffer.from(authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '');
   if (given.length!==expected.length || !timingSafeEqual(expected,given)) return json({error:'Invalid setup key.'},401);
   let input;
   try {input=await request.json();} catch {return json({error:'Enter an email and password.'},400);}
