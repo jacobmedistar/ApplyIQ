@@ -13,6 +13,16 @@ const details = document.querySelector('#lead-details');
 const detailStatus = document.querySelector('#lead-status');
 const routing = document.querySelector('#lead-routing');
 const schedule = document.querySelector('#schedule-followup');
+const assignment = document.querySelector('#lead-assignment');
+const gmailPanel = document.querySelector('#gmail-connection');
+const gmailStatus = document.querySelector('#gmail-status');
+const gmailConnect = document.querySelector('#gmail-connect');
+const gmailDisconnect = document.querySelector('#gmail-disconnect');
+const whatsappPanel = document.querySelector('#whatsapp-approval');
+const whatsappStatus = document.querySelector('#whatsapp-status');
+const whatsappBatch = document.querySelector('#whatsapp-batch');
+const whatsappMessages = document.querySelector('#whatsapp-messages');
+let pendingWhatsApp=[];
 const leadName = document.querySelector('#lead-name');
 const leadContact = document.querySelector('#lead-contact');
 const leadStage = document.querySelector('#lead-stage');
@@ -52,6 +62,14 @@ function reset() {
   contactTimer=undefined;
   contactRequest++;
   dueContact.hidden=true;
+  gmailPanel.hidden=true;
+  whatsappPanel.hidden=whatsappBatch.hidden=true;
+  whatsappStatus.textContent='';
+  whatsappMessages.replaceChildren();
+  whatsappBatch.reset();
+  pendingWhatsApp=[];
+  gmailStatus.textContent='';
+  gmailDisconnect.hidden=true;
   dueList.replaceChildren();
   dueStatus.textContent='';
   details.close();
@@ -105,8 +123,12 @@ async function loadLeads(targetPage) {
     signOut.hidden = queue.hidden = false;
     inquiryPanel.hidden = data.staff.role !== 'super_admin';
     dueContact.hidden=false;
+    gmailPanel.hidden=false;
+    whatsappPanel.hidden=false;
     if (!contactTimer) {
       void loadDueContact();
+      void manageGmail('status');
+      void reviewWhatsApp();
       contactTimer=setInterval(loadDueContact,60000);
     }
     message.textContent = '';
@@ -135,6 +157,145 @@ login.addEventListener('submit',async event=>{
     message.textContent = error.message;
   } finally {
     submit.disabled = false;
+  }
+});
+
+const returnedGmail = new URL(location.href).searchParams.get('gmail');
+if (returnedGmail) {
+  message.textContent = returnedGmail==='connected'?'Gmail connected. Sign in to continue.':'Gmail could not connect. Sign in to try again.';
+  history.replaceState(null,'',location.pathname+location.hash);
+}
+
+async function manageGmail(action) {
+  const generation=session;
+  gmailConnect.disabled=gmailDisconnect.disabled=true;
+  gmailStatus.textContent='Checking Gmail…';
+  try {
+    const response=await fetch('/api/gmail',{method:'POST',headers:{
+      Authorization:'Bearer '+token,'Content-Type':'application/json'
+    },body:JSON.stringify({action})});
+    const result=await response.json();
+    if (generation!==session) return;
+    if (!response.ok) throw Error(result.error || 'Could not manage this Gmail connection.');
+    if (action==='connect') {
+      location.assign(result.url);
+      return;
+    }
+    gmailDisconnect.hidden=!result.email;
+    gmailConnect.textContent=result.email?'Change Gmail account':'Connect Gmail';
+    gmailStatus.textContent=result.email?'Connected as '+result.email:'No Gmail mailbox connected.';
+  } catch (error) {
+    if (generation===session) gmailStatus.textContent=error.message;
+  } finally {
+    if (generation===session) gmailConnect.disabled=gmailDisconnect.disabled=false;
+  }
+}
+gmailConnect.addEventListener('click',()=>manageGmail('connect'));
+gmailDisconnect.addEventListener('click',()=>manageGmail('disconnect'));
+
+async function whatsappApi(body) {
+  const response=await fetch('/api/whatsapp',{method:'POST',headers:{
+    Authorization:'Bearer '+token,'Content-Type':'application/json'
+  },body:JSON.stringify(body)});
+  const result=await response.json();
+  if (!response.ok) throw Error(result.error || 'WhatsApp approval could not be processed.');
+  return result;
+}
+
+function whatsappBrowser(action,fields={},delay=3000) {
+  return new Promise((resolve,reject)=>{
+    const id=crypto.randomUUID();
+    const timeout=setTimeout(()=>{
+      window.removeEventListener('message',reply);
+      reject(Error('Install or reconnect the ApplyIQ WhatsApp extension, then try again.'));
+    },delay);
+    function reply(event) {
+      if (event.source!==window || event.origin!==location.origin ||
+          event.data?.type!=='applyiq-whatsapp-result' || event.data.id!==id) return;
+      clearTimeout(timeout);
+      window.removeEventListener('message',reply);
+      if (event.data.result?.error) reject(Error(event.data.result.error));
+      else resolve(event.data.result);
+    }
+    window.addEventListener('message',reply);
+    window.postMessage({type:'applyiq-whatsapp-request',id,action,...fields},location.origin);
+  });
+}
+
+async function reviewWhatsApp(emptyMessage='No assigned inquiries are awaiting WhatsApp approval.') {
+  const generation=session;
+  whatsappBatch.hidden=true;
+  whatsappMessages.replaceChildren();
+  pendingWhatsApp=[];
+  whatsappStatus.textContent='Checking pending WhatsApp messages…';
+  try {
+    const {messages}=await whatsappApi({action:'list'});
+    if (generation!==session) return;
+    pendingWhatsApp=messages;
+    whatsappBatch.hidden=!messages.length;
+    renderList(whatsappMessages,messages,'',(row,item)=>{
+      const entry=document.createElement('div');
+      const recipient=document.createElement('strong');
+      const text=document.createElement('p');
+      recipient.textContent=item.student+' · '+item.recipient;
+      text.textContent=item.text;
+      entry.append(recipient,text);
+      row.append(entry);
+    });
+    whatsappStatus.textContent=messages.length?'Review each recipient and message before approving this batch.':emptyMessage;
+  } catch (error) {
+    if (generation===session) whatsappStatus.textContent=error.message;
+  }
+}
+document.querySelector('#whatsapp-review').addEventListener('click',()=>reviewWhatsApp());
+
+whatsappBatch.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const generation=session;
+  const sender=whatsappBatch.elements.sender.value.trim().replace(/[\s().-]/g,'');
+  if (!/^\+[1-9]\d{7,14}$/.test(sender)) {
+    whatsappStatus.textContent='Enter your linked WhatsApp number with its country code.';
+    return;
+  }
+  const button=whatsappBatch.querySelector('button');
+  const reviewed=new Map(pendingWhatsApp.map(job=>[job.job_id,job]));
+  button.disabled=true;
+  document.querySelector('#whatsapp-review').disabled=true;
+  let sent=0;
+  let incomplete=0;
+  let approved=false;
+  try {
+    if (!(await whatsappBrowser('ping'))?.ready || generation!==session) return;
+    const {messages}=await whatsappApi({action:'approve',ids:[...reviewed.keys()]});
+    if (generation!==session) return;
+    approved=true;
+    whatsappBatch.hidden=true;
+    for (const job of messages) {
+      if (generation!==session) return;
+      const prior=reviewed.get(job.job_id);
+      if (prior?.recipient!==job.recipient || prior.text!==job.text) {
+        await whatsappApi({action:'finish',job:job.job_id,lease:job.lease,outcome:'retry'});
+        incomplete++;
+        continue;
+      }
+      whatsappStatus.textContent='Sending approved WhatsApp messages…';
+      try {
+        const result=await whatsappBrowser('send',{job,token,sender},65000);
+        if (result.outcome==='accepted') sent++;
+        else incomplete++;
+      } catch {
+        incomplete++;
+      }
+    }
+    whatsappStatus.textContent='Confirmed: '+sent+'. Unconfirmed or skipped: '+(incomplete+reviewed.size-messages.length)+'.';
+  } catch (error) {
+    if (generation===session) whatsappStatus.textContent=error.message;
+  } finally {
+    if (generation===session) {
+      if (approved) pendingWhatsApp=[];
+      button.disabled=false;
+      document.querySelector('#whatsapp-review').disabled=false;
+    }
   }
 });
 
@@ -185,7 +346,7 @@ refreshContact.addEventListener('click',loadDueContact);
 async function openLead(id,status='',selectedInquiry) {
   const generation=++detailRequest;
   currentLead=undefined;
-  routing.hidden=schedule.hidden=true;
+  routing.hidden=schedule.hidden=assignment.hidden=true;
   leadName.textContent='Lead details';
   leadContact.textContent=leadStage.textContent='';
   inquiryHistory.replaceChildren();
@@ -250,6 +411,22 @@ async function openLead(id,status='',selectedInquiry) {
       }
     });
     detailStatus.textContent=status;
+    if (canEdit) {
+      try {
+        const {assignees}=await api({headers:{Authorization:'Bearer '+token}},'?view=assignees');
+        if (generation!==detailRequest || !details.open) return;
+        const select=assignment.elements.assignee;
+        select.replaceChildren(new Option('Unassigned',''));
+        for (const staff of assignees) select.add(new Option((staff.email || staff.id)+' · '+staff.department,staff.id));
+        if (lead.assigned_to && !assignees.some(staff=>staff.id===lead.assigned_to)) {
+          select.add(new Option('Inactive staff',lead.assigned_to));
+        }
+        select.value=lead.assigned_to || '';
+        assignment.hidden=false;
+      } catch {
+        if (generation===detailRequest && details.open) detailStatus.textContent='Staff assignment options could not be loaded.';
+      }
+    }
   } catch (error) {
     if (generation!==detailRequest || !details.open) return;
     if (error.status===401) {
@@ -301,6 +478,15 @@ routing.addEventListener('submit',event=>{
   saveWorkflow(routing.querySelector('button'),'update-lead',{
     ...fields,previousStage:currentLead.stage,previousDepartment:currentLead.department
   },'Stage and department saved.');
+});
+assignment.addEventListener('submit',event=>{
+  event.preventDefault();
+  if (!currentLead) return;
+  const assignee=assignment.elements.assignee.value || null;
+  if (assignee===currentLead.assigned_to) return;
+  saveWorkflow(assignment.querySelector('button'),'assign-lead',{
+    assignee,previousAssignee:currentLead.assigned_to
+  },'Staff assignment saved.');
 });
 schedule.addEventListener('submit',event=>{
   event.preventDefault();

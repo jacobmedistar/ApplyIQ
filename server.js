@@ -3,7 +3,10 @@ import {readFile} from 'node:fs/promises';
 import {Readable} from 'node:stream';
 import * as staff from './api/staff.js';
 import * as setup from './api/setup.js';
-const endpoints = new Map([['/api/staff',staff],['/api/setup',setup]]);
+import * as gmail from './api/gmail.js';
+import * as acknowledgements from './api/acknowledgements.js';
+import * as whatsapp from './api/whatsapp.js';
+const endpoints = new Map([['/api/staff',staff],['/api/setup',setup],['/api/gmail',gmail],['/api/whatsapp',whatsapp],['/api/acknowledgements',acknowledgements]]);
 const assets = {'/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/crm.js':['crm.js','text/javascript'],'/style.css':['style.css','text/css'],'/staff.html':['staff.html','text/html'],'/staff.js':['staff.js','text/javascript']};
 createServer(async (req,res) => {
   const url = new URL(req.url,'http://localhost');

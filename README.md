@@ -34,36 +34,20 @@ The staff workspace refreshes the waiting-for-contact list once a minute. For in
 
 This browser workflow uses no messaging provider credentials. Leave the automated provider scheduler disabled for a browser-only installation.
 
-### Browser runner for unattended delivery
+### Offline Gmail delivery
 
-The runner opens a dedicated Chrome window on an always-on workstation. Use a separate profile directory and worker credential for each staff member. It signs no one in automatically, uses no Gmail or WhatsApp messaging API, and does not attempt to handle CAPTCHA or MFA. Chrome must stay running. This first runner opens a local window and does not embed it in the Vercel staff page.
+1. Apply `supabase/gmail-acknowledgements.sql` after the staff workflow, inquiry acknowledgements and browser acknowledgement migrations.
+2. Enable the Gmail API in Google Cloud. Create an OAuth **Web application** client, configure the consent screen and add the production callback `https://applyiq-opal.vercel.app/api/gmail` as an authorized redirect URI. Use Google OAuth testing for the pilot and follow Google's verification and publishing requirements for production.
+3. In Vercel Production set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_CALLBACK_ORIGIN` (the stable production origin), and `GMAIL_TOKEN_KEY` (64 hexadecimal characters representing a randomly generated 32-byte encryption key). Keep the encryption key stable while mailboxes are connected. Set `ACK_WORKER_SECRET` (at least 32 random characters) and optionally `ACK_WORKING_HOURS`. Deploy.
+4. In ApplyIQ, each staff member signs in and selects **Connect Gmail**, then chooses the mailbox that should send their acknowledgements. Under **Open lead**, a super admin selects **Assigned staff** and saves the assignment. Unassigned leads and staff without a connected mailbox do not send email.
+5. Set the two Supabase Vault secrets documented in `supabase/schedule-inquiry-acknowledgements.sql`. Use the stable production URL ending in `/api/acknowledgements` and the same `ACK_WORKER_SECRET` in both services. Apply the scheduler SQL after testing with a designated inbox. The job runs every minute and does not depend on a staff computer.
+6. If a Gmail request may have succeeded but ApplyIQ could not confirm it, the job is marked uncertain. Check Gmail Sent before following up manually.
 
-1. Apply `supabase/browser-acknowledgements.sql` after `supabase/inquiry-acknowledgements.sql`. Leave the optional provider scheduler disabled to avoid both workers handling the same jobs.
-2. Run `node browser-runner/run.js --generate-token` on the workstation. Store the worker token locally. Set Vercel Production `BROWSER_ACK_WORKERS` to a JSON array such as `[{"staffId":"STAFF_AUTH_USER_UUID","tokenHash":"SHA256_HASH_PRINTED_BY_THE_GENERATOR"}]`. Use the active staff member's authentication UID. The Vercel variable contains hashes only. Redeploy.
-3. Install Chrome and run `npm install --no-save --package-lock=false playwright-core@1.56.1` from the project directory. Create an ignored `.env.browser` file on the workstation:
+### WhatsApp batch approval
 
-   ```dotenv
-   BROWSER_PROFILE_DIR=C:/ApplyIQ-browser-profiles/example-staff
-   BROWSER_ACK_ORIGIN=https://applyiq-opal.vercel.app
-   BROWSER_ACK_TOKEN=WORKER_TOKEN_FROM_STEP_2
-   BROWSER_GMAIL_ACCOUNT=STAFF_GMAIL_ADDRESS
-   BROWSER_ACK_CHANNELS=email,whatsapp
-   ```
+Apply `supabase/whatsapp-approval.sql` and deploy. In Chrome, open `chrome://extensions`, enable Developer mode, and load the repository's `whatsapp-extension` folder unpacked on each computer used for sending. Link WhatsApp Web in that Chrome profile. In ApplyIQ, review the batch of assigned, opted-in inquiries, enter the linked WhatsApp number, and select **Approve and send batch**.
 
-4. Run `node --env-file=.env.browser browser-runner/run.js --login`. Sign in to Gmail and link WhatsApp yourself, then close Chrome. Reopen the dedicated profile with that command when the sites require sign-in again.
-5. Run `node --env-file=.env.browser browser-runner/run.js`. Start with an inquiry using your own test inbox or an opted-in test number. The runner polls every 30 seconds. It handles leads assigned to the configured user and allows a super admin runner to handle unassigned leads.
-
-The runner checks that an inquiry still qualifies immediately before clicking Send. WhatsApp requires recorded opt-in and a verifiable phone number in the contact panel. If a site changes and the runner cannot verify the recipient, the job is retried without sending. An unconfirmed send click is marked uncertain and is not automatically retried. Check the sender's Sent folder or chat before taking further action. Browser selectors must be validated against the live signed-in Gmail and WhatsApp interfaces before relying on unattended delivery.
-
-### Optional provider worker
-
-Apply `supabase/inquiry-acknowledgements.sql` before the app deployment. New inquiries queue an email and a WhatsApp acknowledgement for ten minutes after receipt. Record successful contact on the inquiry in the staff workspace before the worker picks it up. Record the student's explicit WhatsApp opt-in before the deadline to enable phone delivery. Existing inquiries are excluded from this rollout.
-
-In Vercel Production, configure `ACK_WORKER_SECRET` (a random secret of at least 32 characters), `RESEND_API_KEY`, `ACK_EMAIL_FROM` (a verified sending address), and `ACK_EMAIL_REPLY_TO` (a monitored mailbox). Optionally set `ACK_WORKING_HOURS` with hours and time zone. The email asks for the student's preferred callback time.
-
-For WhatsApp, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `ACK_WHATSAPP_FROM` (a registered sender in E.164 format, without the whatsapp prefix), and `ACK_WHATSAPP_CONTENT_SID` (an approved template with no variables). Set the approved template copy to acknowledge the inquiry and invite the student to reply with a preferred callback time. Inbound replies are handled in the provider inbox or reply mailbox at this stage.
-
-Create Vault secrets named `applyiq_ack_worker_url` (the full stable Vercel production URL ending in `/api/acknowledgements`) and `applyiq_ack_worker_secret` (the exact worker secret configured in Vercel). Then apply `supabase/schedule-inquiry-acknowledgements.sql` to run the worker every minute. The first attempt can start on the next tick at or after the ten-minute deadline. Database delivery states distinguish provider acceptance, skips, failures and uncertain sends. Provider acceptance does not confirm delivery. Review uncertain WhatsApp sends in the provider first to avoid duplicates.
+The extension uses the signed-in WhatsApp Web session without a WhatsApp API. It stops if it cannot verify either phone number on the page. Test with an opted-in test number before enabling operational use. Only Gmail runs when the user's computer is offline. The older workstation sender is disabled.
 
 ## Remaining production work
 

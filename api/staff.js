@@ -31,7 +31,7 @@ export async function POST(request) {
   if (['record-contact','record-whatsapp-opt-in','revoke-whatsapp-opt-in'].includes(action)) {
     return updateInquiry(request,settings,action);
   }
-  if (['update-lead','schedule-followup','complete-followup'].includes(action)) {
+  if (['update-lead','assign-lead','schedule-followup','complete-followup'].includes(action)) {
     return changeWorkflow(request,settings,action);
   }
   let credentials;
@@ -114,6 +114,13 @@ async function changeWorkflow(request,settings,action) {
     scope.set('department','eq.'+data.previousDepartment);
     path='/rest/v1/leads?'+scope;
     body={stage:data.stage,department:data.department};
+  } else if (action==='assign-lead') {
+    if ((data.assignee!==null && !isUuid(data.assignee)) ||
+        (data.previousAssignee!==null && !isUuid(data.previousAssignee))) return json({error:'Choose a valid staff assignment.'},422);
+    const scope=leadScope(settings,data.leadId);
+    scope.set('assigned_to',data.previousAssignee===null?'is.null':'eq.'+data.previousAssignee);
+    path='/rest/v1/leads?'+scope;
+    body={assigned_to:data.assignee};
   } else if (action==='schedule-followup') {
     const title=typeof data.title==='string' ? data.title.trim() : '';
     const due=typeof data.due==='string' ? Date.parse(data.due) : NaN;
@@ -199,6 +206,12 @@ export async function GET(request) {
     if (!membership.ok) return json({error:'Could not verify staff access.'},502);
     const [staff] = await membership.json();
     if (!staff) return json({error:'This account does not have access to ApplyIQ.'},403);
+    if (new URL(request.url).searchParams.get('view')==='assignees') {
+      if (staff.role!=='super_admin') return json({error:'Only a super admin can assign leads.'},403);
+      const result=await requestSupabase(settings,'/rest/v1/rpc/lead_assignees',{token,body:{tenant:settings.org}});
+      if (!result.ok) return json({error:'Could not load staff assignments.'},502);
+      return json({assignees:await result.json()});
+    }
     if (new URL(request.url).searchParams.get('view')==='due-contact') {
       const params=new URLSearchParams({
         select:'id,lead_id,topic,source,received_at,lead:leads!inner(id,name,department,stage,archived_at,assigned_to)',

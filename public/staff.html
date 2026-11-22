@@ -14,6 +14,19 @@
 <div class="wide"><button class="primary">Sign in</button></div>
 <a class="wide" href="/setup.html">Set up the first administrator</a>
 </form>
+<section class="panel" id="gmail-connection" hidden>
+<div class="toolbar"><h2>Gmail acknowledgements</h2><button id="gmail-connect" type="button">Connect Gmail</button><button id="gmail-disconnect" type="button" hidden>Disconnect from ApplyIQ</button></div>
+<p id="gmail-status" role="status"></p>
+</section>
+<section class="panel" id="whatsapp-approval" hidden>
+<div class="toolbar"><h2>WhatsApp acknowledgements</h2><button id="whatsapp-review" type="button">Review pending messages</button></div>
+<p id="whatsapp-status" role="status"></p>
+<form id="whatsapp-batch" class="form" hidden>
+<label>Your linked WhatsApp number<input name="sender" type="tel" placeholder="+91…" required></label>
+<div id="whatsapp-messages" class="wide"></div>
+<div><button class="primary">Approve and send batch</button></div>
+</form>
+</section>
 <section class="panel" id="due-contact" hidden>
 <div class="toolbar"><h2>Waiting for first contact</h2><button id="refresh-contact" type="button">Refresh</button></div>
 <p id="due-contact-status" role="status"></p><div id="due-contact-list"></div>
@@ -45,6 +58,10 @@
 <label>Stage<select name="stage" required></select></label>
 <label>Department<select name="department" required></select></label>
 <div class="wide"><button class="primary">Save stage and department</button></div>
+</form>
+<form id="lead-assignment" class="form" hidden>
+<label>Assigned staff<select name="assignee"></select></label>
+<div><button type="submit" class="primary">Save assignment</button></div>
 </form>
 <section class="panel"><h2>Inquiry history</h2><div id="lead-inquiries"></div></section>
 <section class="panel"><h2>Follow-ups</h2><div id="lead-followups"></div>

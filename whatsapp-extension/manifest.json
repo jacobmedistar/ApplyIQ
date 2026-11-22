@@ -1,0 +1,9 @@
+{
+  "manifest_version":3,
+  "name":"ApplyIQ WhatsApp approvals",
+  "version":"0.1.0",
+  "permissions":["scripting"],
+  "host_permissions":["https://applyiq-opal.vercel.app/*","https://web.whatsapp.com/*"],
+  "background":{"service_worker":"worker.js"},
+  "content_scripts":[{"matches":["https://applyiq-opal.vercel.app/staff.html*"],"js":["bridge.js"]}]
+}
