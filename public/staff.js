@@ -1,9 +1,16 @@
+import {sources} from './crm.js';
+
 const login = document.querySelector('#login');
 const queue = document.querySelector('#queue');
 const message = document.querySelector('#message');
 const signOut = document.querySelector('#sign-out');
 const previous = document.querySelector('#previous');
 const next = document.querySelector('#next');
+const inquiry = document.querySelector('#inquiry');
+const inquiryPanel = document.querySelector('#inquiry-panel');
+const inquiryStatus = document.querySelector('#inquiry-status');
+for (const source of sources) inquiry.elements.source.add(new Option(source,source));
+let pendingInquiry;
 let token;
 let page = 1;
 let session = 0;
@@ -25,6 +32,10 @@ function reset() {
   page = 1;
   queue.hidden = signOut.hidden = true;
   login.hidden = false;
+  inquiryPanel.hidden = true;
+  inquiry.reset();
+  inquiryStatus.textContent = '';
+  pendingInquiry = undefined;
   document.querySelector('#leads').replaceChildren();
   document.querySelector('#membership').textContent = '';
 }
@@ -60,6 +71,7 @@ async function loadLeads(targetPage) {
     next.disabled = !data.hasNext;
     login.hidden = true;
     signOut.hidden = queue.hidden = false;
+    inquiryPanel.hidden = data.staff.role !== 'super_admin';
     message.textContent = '';
   } catch (error) {
     if (session !== currentSession) return;
@@ -91,3 +103,34 @@ login.addEventListener('submit',async event=>{
 signOut.addEventListener('click',()=>{reset();message.textContent='Signed out.';});
 previous.addEventListener('click',()=>loadLeads(page-1));
 next.addEventListener('click',()=>loadLeads(page+1));
+
+inquiry.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const currentSession=session;
+  const submit=inquiry.querySelector('button');
+  const fields=Object.fromEntries(new FormData(inquiry));
+  const snapshot=JSON.stringify(fields);
+  if (pendingInquiry?.snapshot!==snapshot) pendingInquiry={snapshot,id:crypto.randomUUID()};
+  submit.disabled=true;
+  inquiryStatus.textContent='Saving inquiry…';
+  try {
+    await api({method:'POST',headers:{
+      Authorization:'Bearer '+token,'Content-Type':'application/json'
+    },body:JSON.stringify({...fields,externalId:pendingInquiry.id})},'?action=create-inquiry');
+    if (session!==currentSession) return;
+    pendingInquiry=undefined;
+    inquiry.reset();
+    inquiryStatus.textContent='Inquiry saved.';
+    await loadLeads(1);
+  } catch (error) {
+    if (session!==currentSession) return;
+    if (error.status===401) {
+      reset();
+      message.textContent=error.message;
+    } else {
+      inquiryStatus.textContent=error.message;
+    }
+  } finally {
+    submit.disabled=false;
+  }
+});

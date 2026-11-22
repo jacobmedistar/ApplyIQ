@@ -16,7 +16,9 @@ Use Node.js 22 or later. Run `npm run dev` and open http://127.0.0.1:4173. Run `
 
 ## Staff sign-in and shared leads
 
-Open `/staff.html` for the authenticated, read-only staff workspace. Set `SUPABASE_PUBLISHABLE_KEY` in Vercel using the publishable key from the same Supabase project. This route also requires `SUPABASE_URL` and `SUPABASE_ORG_ID`. For local development with an environment file, run `node --env-file=.env.local server.js`.
+Open `/staff.html` for the authenticated staff workspace. Set `SUPABASE_PUBLISHABLE_KEY` in Vercel using the publishable key from the same Supabase project. This route also requires `SUPABASE_URL` and `SUPABASE_ORG_ID`. For local development with an environment file, run `node --env-file=.env.local server.js`.
+
+Apply `supabase/staff-intake.sql` after the foundation schema to enable the New inquiry form for active super administrators. The database verifies the role and records the signed-in actor in audit history. The form uses the shared intake logic for repeat inquiries and identifies submissions so retries do not create duplicate inquiry events.
 
 Apply `supabase/staff-setup.sql` after the foundation schema. This migration installs the function and permissions used by the form. Set `APPLYIQ_SETUP_KEY` to a new random secret of at least 32 characters in Vercel and deploy. Open `/setup.html`, enter the setup key, and choose the first administrator's email and password. The form creates the Auth account and links it to the existing organization. Once the first staff membership exists, further setup requests are rejected. Remove the setup key from Vercel and redeploy after signing in successfully.
 

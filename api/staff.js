@@ -1,3 +1,5 @@
+import {contact,sources} from '../public/crm.js';
+
 const json = (body, status = 200) => Response.json(body, {
   status, headers: {'Cache-Control': 'no-store'}
 });
@@ -22,6 +24,9 @@ function requestSupabase(settings, path, {token, body, headers} = {}) {
 export async function POST(request) {
   const settings = config();
   if (!settings) return json({error:'Staff sign-in is unavailable.'},503);
+  if (new URL(request.url).searchParams.get('action') === 'create-inquiry') {
+    return createInquiry(request,settings);
+  }
   let credentials;
   try {
     credentials = await request.json();
@@ -43,6 +48,37 @@ export async function POST(request) {
     return json({token});
   } catch {
     return json({error:'Staff sign-in is unavailable.'},502);
+  }
+}
+
+async function createInquiry(request,settings) {
+  const authorization = request.headers.get('Authorization');
+  if (!authorization?.startsWith('Bearer ')) return json({error:'Sign in to continue.'},401);
+  const token = authorization.slice(7);
+  let row;
+  try {
+    const input = await request.json();
+    const fields = ['name','phone','email','topic','source','externalId'];
+    if (!fields.every(key=>typeof input[key]==='string' && input[key].trim() && input[key].length<=500)) throw Error();
+    row = contact(Object.fromEntries(fields.map(key=>[key,input[key]])));
+    if (!sources.includes(row.source) || !/^[0-9a-f-]{36}$/i.test(row.externalId)) throw Error();
+  } catch {
+    return json({error:'Enter a name, phone with country code, email, inquiry topic and source.'},422);
+  }
+  try {
+    const result = await requestSupabase(settings,'/rest/v1/rpc/record_staff_inquiry',{token,body:{
+      tenant:settings.org,student_name:row.name,canonical_phone:row.phone,student_email:row.email,
+      inquiry_topic:row.topic,inquiry_source:row.source,source_id:row.externalId
+    }});
+    const data = await result.json();
+    if (result.status===401) return json({error:'Your session has expired. Sign in again.'},401);
+    if (result.status===403) return json({error:'Only an active super administrator can add inquiries.'},403);
+    if (data?.code==='23505') return json({error:'The phone and email match different leads. Review the existing records.'},409);
+    if (result.status===404) return json({error:'Staff intake is unavailable. Check the staff intake migration.'},503);
+    if (!result.ok || typeof data!=='string') return json({error:'Could not add the inquiry. Retry this submission.'},502);
+    return json({leadId:data},201);
+  } catch {
+    return json({error:'Could not confirm the inquiry was saved. Retry this submission.'},502);
   }
 }
 

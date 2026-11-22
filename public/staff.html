@@ -18,6 +18,18 @@
 <h2>Active leads</h2><p id="membership" class="muted"></p><div id="leads"></div>
 <div class="toolbar"><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></div>
 </section>
+<section class="panel" id="inquiry-panel" hidden>
+<h2>New inquiry</h2>
+<form class="form" id="inquiry">
+<label>Student name<input name="name" maxlength="250" required></label>
+<label>Phone<input name="phone" type="tel" placeholder="+91…" maxlength="40" required></label>
+<label>Email<input name="email" type="email" maxlength="254" required></label>
+<label>Inquiry topic<input name="topic" maxlength="500" required></label>
+<label>Source<select name="source" required></select></label>
+<div class="wide"><button class="primary">Save inquiry</button></div>
+</form>
+<p id="inquiry-status" role="status"></p>
+</section>
 </section>
 </main>
 <script type="module" src="/staff.js"></script>

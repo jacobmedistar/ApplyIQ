@@ -21,7 +21,9 @@ export async function POST(request) {
   try {
     const response = await fetch(new URL('/rest/v1/rpc/record_inquiry',SUPABASE_URL),{
       method:'POST',
-      headers:{apikey:SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json'},
+      headers:{apikey:SUPABASE_SERVICE_ROLE_KEY,
+        ...(SUPABASE_SERVICE_ROLE_KEY.startsWith('sb_secret_') ? {} : {Authorization:'Bearer '+SUPABASE_SERVICE_ROLE_KEY}),
+        'Content-Type':'application/json'},
       body:JSON.stringify({tenant:SUPABASE_ORG_ID,student_name:row.name,canonical_phone:row.phone,student_email:row.email,inquiry_topic:row.topic,inquiry_source:row.source,source_id:row.externalId}),
       signal:AbortSignal.timeout(10000),
     });
